@@ -1,0 +1,17 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.env
+.ipynb_checkpoints/
+
+# Dataset: distribute separately
+data/TAWOS.sql
+data/TAWOS.sql.zip
+data/processed/*
+
+# Generated artifacts
+models/*
+!models/.gitkeep
+results/*
+!results/.gitkeep
