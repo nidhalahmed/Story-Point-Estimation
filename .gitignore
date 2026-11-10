@@ -1,3 +1,4 @@
+
 # Python
 .venv/
 __pycache__/
@@ -5,13 +6,31 @@ __pycache__/
 .env
 .ipynb_checkpoints/
 
-# Dataset: distribute separately
-data/TAWOS.sql
-data/TAWOS.sql.zip
-data/processed/*
+# Raw and processed datasets
+data/raw/
+data/processed/
 
-# Generated artifacts
+# Model artifacts
 models/*
 !models/.gitkeep
-results/*
-!results/.gitkeep
+!models/*.json
+!models/**/*.json
+
+# Results (keep everything)
+!results/
+!results/**
+
+# Member-specific model archives
+models_for_member_5/
+models_for_member_5.zip
+
+# Large model checkpoints
+*.pt
+*.pth
+*.ckpt
+*.onnx
+
+# Temporary files
+*.log
+*.tmp
+.DS_Store
