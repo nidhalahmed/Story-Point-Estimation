@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import numpy as np
@@ -31,8 +32,6 @@ print(f"Output directory: {OUTPUT_DIR}")
 # 2. CNN, exact as Niraj
 
 class StoryPointCNN(nn.Module):
-    """Three-layer 1D CNN (with BatchNorm) for SBERT embeddings."""
-
     def __init__(self, input_dim=384, dropout=0.2):
         super().__init__()
 
@@ -72,13 +71,6 @@ class StoryPointCNN(nn.Module):
 
 # helper functions, load, metric_calc and predict
 
-
-"""
-Not sure about this. 
-"""
-
-import json
-
 def load_model(model_path):
     model = StoryPointCNN().to(DEVICE)
 
@@ -89,7 +81,6 @@ def load_model(model_path):
     )
 
     model.load_state_dict(checkpoint)
-    model.eval()
 
     preprocess_path = model_path.parent / "preprocess.json"
 
@@ -134,7 +125,7 @@ def predict(model, embeddings, preprocess):
 
 # load project pairs
 
-pairs_df =pd.read_csv(PAIRS_FILE)
+pairs_df = pd.read_csv(PAIRS_FILE)
 
 required_pair_columns = {
     "pair",
@@ -171,47 +162,17 @@ for _, pair_row in pairs_df.iterrows():
     print("=" * 65)
 
 
-    model_path = (MODELS_DIR / pair / "story_point_cnn.pt")
+    model_path = MODELS_DIR / pair / "story_point_cnn.pt"
 
     pair_split_dir = SPLITS_DIR / pair / "embeddings"
 
-    target_embeddings_path = (pair_split_dir / "target_test_embeddings.npy")
-    target_metadata_path = (pair_split_dir / "target_test_metadata.csv")
-
-    # required_files = [
-    #     model_path,
-    #     config_path,
-    #     target_embeddings_path,
-    #     target_metadata_path
-    # ]
-
-    # missing_files = [
-    #     str(path) for path in required_files
-    #     if not path.exists()
-    # ]
-
-    # if missing_files:
-    #     raise FileNotFoundError(
-    #         f"Missing files for {pair}:\n"
-    #         + "\n".join(missing_files)
-    #     )
-
-    # if "story_points" not in source_metadata.columns:
-    #     raise ValueError(
-    #         f"{pair}: story_points column missing "
-    #         "from source development metadata."
-    #     ) 
+    target_embeddings_path = pair_split_dir / "target_test_embeddings.npy"
+    target_metadata_path = pair_split_dir / "target_test_metadata.csv"
 
     # load target test embeddings and metadata
 
     X_test = np.load(target_embeddings_path)
     target_metadata = pd.read_csv(target_metadata_path)
-
-    # if "story_points" not in target_metadata.columns:
-    #     raise ValueError(
-    #         f"{pair}: story_points column missing "
-    #         "from target metadata."
-    #     )
 
     y_test = pd.to_numeric(
         target_metadata["story_points"],
@@ -262,11 +223,6 @@ for _, pair_row in pairs_df.iterrows():
     model, preprocess = load_model(model_path)
     cnn_prediction = predict(model, X_test, preprocess)
 
-    if len(cnn_prediction) != len(y_test):
-        raise ValueError(
-            f"{pair}: Prediction and target counts do not match."
-        )
-
     # calculate eval metrics
     cnn_mae, cnn_mdae = calculate_metrics(y_test, cnn_prediction)
 
@@ -283,7 +239,7 @@ for _, pair_row in pairs_df.iterrows():
         "cnn_absolute_error" : np.abs(y_test - cnn_prediction)
     })
     
-    predictions_path = (OUTPUT_DIR / f"{pair}_predictions.csv")
+    predictions_path = OUTPUT_DIR / f"{pair}_predictions.csv"
     predictions_df.to_csv(predictions_path, index=False)
 
     # store pair level results
@@ -307,19 +263,10 @@ for _, pair_row in pairs_df.iterrows():
 
     print(f"Predictions saved: {predictions_path}")
 
-    # release model 
-    del model
-
-    if DEVICE.type == "cuda":
-        torch.cuda.empty_cache()
-
 # save results
 results_df = pd.DataFrame(all_results)
-summary_path = (OUTPUT_DIR / "cross_project_evaluation_summary.csv")
-results_df.to_csv(
-    summary_path,
-    index=False
-)
+summary_path = OUTPUT_DIR / "cross_project_evaluation_summary.csv"
+results_df.to_csv(summary_path, index=False)
 
 # overall summary
 
@@ -344,4 +291,3 @@ print(f"\nConsolidated results: {summary_path}")
 print(f"Individual predictions: {OUTPUT_DIR}")
 
 print("\nALL 39 PAIRS EVALUATED SUCCESSFULLY.")
-
