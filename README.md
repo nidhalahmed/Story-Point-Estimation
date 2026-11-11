@@ -33,6 +33,8 @@ The dataset contains historical software issues collected from multiple projects
 
 The dataset is preprocessed and divided according to the assigned random-split protocol.
 
+TAWOS : https://doi.org/10.5522/04/21308124
+
 ## Setup
 
 **Requirements:** Python 3.x
@@ -51,17 +53,7 @@ Execute the following files in the specified order:
 python 01_load_data.py
 python 02_prepare_data.py
 python 03_encode_text.py
-```
-
-Then execute the notebook:
-
-```bash
-jupyter notebook nlp-model-2.ipynb
-```
-
-Finally, run the evaluation script:
-
-```bash
+python 04_training.py
 python 05_evaluate_models.py
 ```
 
