@@ -31,39 +31,44 @@ print(f"Output directory: {OUTPUT_DIR}")
 # 2. CNN, exact as Niraj
 
 class StoryPointCNN(nn.Module):
-    """
-    3-Layer 1D CNN regressor for SBERT sentence embeddings (384 dimensions).
-    Conforms directly to Project Guidelines Section 3.1.
-    """
+    """Three-layer 1D CNN (with BatchNorm) for SBERT embeddings."""
+
     def __init__(self, input_dim=384, dropout=0.2):
-        super(StoryPointCNN, self).__init__()
-        self.conv1 = nn.Conv1d(1, 64, kernel_size=3, padding=1)
-        self.relu1 = nn.ReLU()
-        self.pool1 = nn.MaxPool1d(2)  # 384 -> 192
+        super().__init__()
 
-        self.conv2 = nn.Conv1d(64, 32, kernel_size=3, padding=1)
-        self.relu2 = nn.ReLU()
-        self.pool2 = nn.MaxPool1d(2)  # 192 -> 96
+        self.features = nn.Sequential(
+            nn.Conv1d(1, 32, kernel_size=3, padding=1),
+            nn.BatchNorm1d(32),
+            nn.ReLU(),
+            nn.MaxPool1d(2),
 
-        self.conv3 = nn.Conv1d(32, 16, kernel_size=3, padding=1)
-        self.relu3 = nn.ReLU()
-        self.pool3 = nn.MaxPool1d(2)  # 96 -> 48
+            nn.Conv1d(32, 16, kernel_size=3, padding=1),
+            nn.BatchNorm1d(16),
+            nn.ReLU(),
+            nn.MaxPool1d(2),
 
-        self.fc = nn.Sequential(
-            nn.Linear(16 * (input_dim // 8), 64),
+            nn.Conv1d(16, 8, kernel_size=3, padding=1),
+            nn.BatchNorm1d(8),
+            nn.ReLU(),
+            nn.MaxPool1d(2)
+        )
+
+        self.regressor = nn.Sequential(
+            nn.Linear(8 * (input_dim // 8), 32),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(64, 1)
+            nn.Linear(32, 1)
         )
 
     def forward(self, x):
         if x.dim() == 2:
             x = x.unsqueeze(1)
-        x = self.pool1(self.relu1(self.conv1(x)))
-        x = self.pool2(self.relu2(self.conv2(x)))
-        x = self.pool3(self.relu3(self.conv3(x)))
-        x = x.view(x.size(0), -1)
-        return self.fc(x).squeeze(-1)
+
+        x = self.features(x)
+        x = x.flatten(start_dim=1)
+
+        return self.regressor(x).squeeze(-1)
+
 
 # helper functions, load, metric_calc and predict
 
@@ -71,41 +76,46 @@ class StoryPointCNN(nn.Module):
 """
 Not sure about this. 
 """
+
+import json
+
 def load_model(model_path):
     model = StoryPointCNN().to(DEVICE)
 
-    try:
-        checkpoint = torch.load(
-            model_path,
-            map_location=DEVICE,
-            weights_only=True
-        )
-    except TypeError:
-        checkpoint = torch.load(
-            model_path,
-            map_location=DEVICE
-        )
+    checkpoint = torch.load(
+        model_path,
+        map_location=DEVICE,
+        weights_only=True
+    )
 
-    if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
-        state_dict = checkpoint["state_dict"]
-    elif isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
-        state_dict = checkpoint["model_state_dict"]
-    else:
-        state_dict = checkpoint
-
-    model.load_state_dict(state_dict)
+    model.load_state_dict(checkpoint)
     model.eval()
 
-    return model
+    preprocess_path = model_path.parent / "preprocess.json"
+
+    with open(preprocess_path, "r") as f:
+        preprocess = json.load(f)
+
+    return model, preprocess
+
 
 def calculate_metrics(actual, predicted):
     mae = mean_absolute_error(actual, predicted)
     mdae = median_absolute_error(actual, predicted)
     return mae, mdae
 
-def predict(model, embeddings):
+
+def predict(model, embeddings, preprocess):
+    # Standardize embeddings using training-set statistics
+    x_mean = np.asarray(preprocess["x_mean"])
+    x_scale = np.asarray(preprocess["x_scale"])
+
+    X_scaled = ((embeddings - x_mean) / x_scale).astype(np.float32)
+
     X = torch.tensor(
-        embeddings, dtype=torch.float32, device=DEVICE
+        X_scaled,
+        dtype=torch.float32,
+        device=DEVICE
     )
 
     model.eval()
@@ -113,7 +123,14 @@ def predict(model, embeddings):
     with torch.no_grad():
         predictions = model(X).cpu().numpy()
 
-    return predictions
+    # Reverse target standardization
+    predictions = predictions * preprocess["y_sd"] + preprocess["y_mu"]
+
+    # Reverse log1p transformation
+    if preprocess["log_target"]:
+        predictions = np.expm1(predictions)
+
+    return np.clip(predictions, 0.0, None)
 
 # load project pairs
 
@@ -242,8 +259,8 @@ for _, pair_row in pairs_df.iterrows():
 
     # load CNN and predict
 
-    model = load_model(model_path)
-    cnn_prediction = predict(model, X_test)
+    model, preprocess = load_model(model_path)
+    cnn_prediction = predict(model, X_test, preprocess)
 
     if len(cnn_prediction) != len(y_test):
         raise ValueError(

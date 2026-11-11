@@ -8,7 +8,8 @@ import torch
 import torch.nn as nn
 
 from sklearn.model_selection import KFold
-from sklearn.metrics import mean_absolute_error
+from sklearn.metrics import mean_absolute_error, median_absolute_error
+from sklearn.preprocessing import StandardScaler
 from torch.utils.data import TensorDataset, DataLoader
 
 
@@ -26,10 +27,15 @@ WEIGHT_DECAY = 1e-4
 # Early stopping
 PATIENCE = 15
 MIN_DELTA = 1e-4
+MIN_FINAL_EPOCHS = 10      # floor for final-model epochs (guards against a lucky epoch-1 "best")
 
 # Architecture
 INPUT_DIM = 384
 DROPOUT = 0.2
+
+# Target / loss
+LOG_TARGET = True          # train on standardized log1p(story_points)
+LOSS = "huber"             # "huber" (on standardized target) or "l1"
 
 # Cross-validation
 N_SPLITS = 5
@@ -64,34 +70,93 @@ if len(pairs_df) != 39:
 
 
 # ============================================================
+# Preprocessing (fit on training data only)
+# ============================================================
+
+class Preprocessor:
+    """
+    Feature standardization + target transform.
+
+    Fit on the training portion only (per fold / on full development
+    data for the final model) so nothing leaks from validation or target.
+    """
+
+    def __init__(self, log_target=LOG_TARGET):
+        self.log_target = log_target
+        self.x_scaler = StandardScaler()
+        self.y_mu = 0.0
+        self.y_sd = 1.0
+
+    def _fwd_y(self, y):
+        y = np.asarray(y, dtype=np.float64)
+        return np.log1p(y) if self.log_target else y
+
+    def fit(self, X, y):
+        self.x_scaler.fit(X)
+        y_t = self._fwd_y(y)
+        self.y_mu = float(np.mean(y_t))
+        self.y_sd = float(np.std(y_t) + 1e-8)
+        return self
+
+    def transform_X(self, X):
+        return self.x_scaler.transform(X).astype(np.float32)
+
+    def transform_y(self, y):
+        return ((self._fwd_y(y) - self.y_mu) / self.y_sd).astype(np.float32)
+
+    def inverse_y(self, z):
+        y_t = np.asarray(z, dtype=np.float64) * self.y_sd + self.y_mu
+        y = np.expm1(y_t) if self.log_target else y_t
+        return np.clip(y, 0.0, None)
+
+    def to_dict(self):
+        """Plain-JSON export so downstream users don't need this class."""
+        return {
+            "log_target": self.log_target,
+            "x_mean": self.x_scaler.mean_.tolist(),
+            "x_scale": self.x_scaler.scale_.tolist(),
+            "y_mu": self.y_mu,
+            "y_sd": self.y_sd,
+            "inverse": (
+                "points = clip(expm1(z * y_sd + y_mu), 0)" if self.log_target
+                else "points = clip(z * y_sd + y_mu, 0)"
+            ),
+            "forward_x": "x_scaled = (x - x_mean) / x_scale",
+        }
+
+
+# ============================================================
 # CNN Architecture
 # ============================================================
 
 class StoryPointCNN(nn.Module):
-    """Three-layer 1D CNN for SBERT embeddings."""
+    """Three-layer 1D CNN (with BatchNorm) for SBERT embeddings."""
 
     def __init__(self, input_dim=INPUT_DIM, dropout=0.2):
         super().__init__()
 
         self.features = nn.Sequential(
-            nn.Conv1d(1, 64, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.MaxPool1d(2),
-
-            nn.Conv1d(64, 32, kernel_size=3, padding=1),
+            nn.Conv1d(1, 32, kernel_size=3, padding=1),
+            nn.BatchNorm1d(32),
             nn.ReLU(),
             nn.MaxPool1d(2),
 
             nn.Conv1d(32, 16, kernel_size=3, padding=1),
+            nn.BatchNorm1d(16),
+            nn.ReLU(),
+            nn.MaxPool1d(2),
+
+            nn.Conv1d(16, 8, kernel_size=3, padding=1),
+            nn.BatchNorm1d(8),
             nn.ReLU(),
             nn.MaxPool1d(2)
         )
 
         self.regressor = nn.Sequential(
-            nn.Linear(16 * (input_dim // 8), 64),
+            nn.Linear(8 * (input_dim // 8), 32),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(64, 1)
+            nn.Linear(32, 1)
         )
 
     def forward(self, x):
@@ -102,6 +167,7 @@ class StoryPointCNN(nn.Module):
         x = x.flatten(start_dim=1)
 
         return self.regressor(x).squeeze(-1)
+
 
 # ============================================================
 # Training and Prediction Functions
@@ -122,11 +188,7 @@ def train_epoch(model, loader, optimizer, criterion):
 
         loss.backward()
 
-        # Prevent unusually large gradients.
-        torch.nn.utils.clip_grad_norm_(
-            model.parameters(),
-            max_norm=1.0
-        )
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
 
         optimizer.step()
 
@@ -136,37 +198,24 @@ def train_epoch(model, loader, optimizer, criterion):
 
 
 def predict(model, loader):
+    """Raw model outputs (standardized target scale)."""
     model.eval()
-    predictions = []
+    outputs = []
 
     with torch.no_grad():
         for (X_batch,) in loader:
             X_batch = X_batch.to(device)
+            outputs.extend(model(X_batch).cpu().numpy())
 
-            batch_predictions = model(X_batch)
-
-            predictions.extend(
-                batch_predictions.cpu().numpy()
-            )
-
-    return np.array(predictions)
+    return np.array(outputs)
 
 
 def create_loader(X, y=None, shuffle=False):
-
-    X_tensor = torch.tensor(
-        X,
-        dtype=torch.float32
-    ).unsqueeze(1)
+    X_tensor = torch.tensor(X, dtype=torch.float32).unsqueeze(1)
 
     if y is not None:
-        y_tensor = torch.tensor(
-            y,
-            dtype=torch.float32
-        )
-
+        y_tensor = torch.tensor(y, dtype=torch.float32)
         dataset = TensorDataset(X_tensor, y_tensor)
-
     else:
         dataset = TensorDataset(X_tensor)
 
@@ -178,6 +227,12 @@ def create_loader(X, y=None, shuffle=False):
     )
 
 
+def predict_points(model, prep, X):
+    """Raw embeddings -> predicted story points (original scale)."""
+    z = predict(model, create_loader(prep.transform_X(X)))
+    return prep.inverse_y(z)
+
+
 def train_model(
     X_train,
     y_train,
@@ -187,28 +242,26 @@ def train_model(
     patience=PATIENCE
 ):
     """
-    Train the CNN with optional validation-based early stopping.
+    Train the CNN. Returns (model, preprocessor).
 
-    When validation data is supplied:
-      - Monitor validation MAE.
-      - Save the best model weights.
-      - Reduce learning rate when validation stops improving.
-      - Stop after PATIENCE unsuccessful epochs.
-
-    When validation data is absent:
-      - Train for the specified fixed number of epochs.
-      - Used for final model training.
+    With validation data:
+      - Early stopping / LR scheduling / best-checkpoint on validation MAE
+        computed in ORIGINAL story-point units.
+    Without validation data:
+      - Fixed number of epochs (final model on all development data).
     """
 
+    torch.manual_seed(SEED)
+
+    prep = Preprocessor().fit(X_train, y_train)
+
     train_loader = create_loader(
-        X_train,
-        y_train,
+        prep.transform_X(X_train),
+        prep.transform_y(y_train),
         shuffle=True
     )
 
-    model = StoryPointCNN(
-        dropout=DROPOUT
-    ).to(device)
+    model = StoryPointCNN(dropout=DROPOUT).to(device)
 
     optimizer = torch.optim.Adam(
         model.parameters(),
@@ -216,7 +269,7 @@ def train_model(
         weight_decay=WEIGHT_DECAY
     )
 
-    criterion = nn.L1Loss()
+    criterion = nn.HuberLoss(delta=1.0) if LOSS == "huber" else nn.L1Loss()
 
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,
@@ -226,10 +279,8 @@ def train_model(
         min_lr=1e-6
     )
 
-    val_loader = None
-
-    if X_val is not None and y_val is not None:
-        val_loader = create_loader(X_val)
+    has_val = X_val is not None and y_val is not None
+    val_loader = create_loader(prep.transform_X(X_val)) if has_val else None
 
     best_val_mae = float("inf")
     best_epoch = 0
@@ -239,115 +290,85 @@ def train_model(
     history = {
         "train_loss": [],
         "val_mae": [],
+        "val_mdae": [],
         "learning_rate": []
     }
 
     for epoch in range(1, max_epochs + 1):
 
-        train_loss = train_epoch(
-            model,
-            train_loader,
-            optimizer,
-            criterion
-        )
+        train_loss = train_epoch(model, train_loader, optimizer, criterion)
 
         history["train_loss"].append(train_loss)
 
         current_lr = optimizer.param_groups[0]["lr"]
-
         history["learning_rate"].append(current_lr)
 
-        # ----------------------------------------------------
-        # Validation
-        # ----------------------------------------------------
+        if has_val:
 
-        if val_loader is not None:
+            val_predictions = prep.inverse_y(predict(model, val_loader))
 
-            val_predictions = predict(
-                model,
-                val_loader
-            )
-
-            val_mae = mean_absolute_error(
-                y_val,
-                val_predictions
-            )
+            val_mae = mean_absolute_error(y_val, val_predictions)
+            val_mdae = median_absolute_error(y_val, val_predictions)
 
             history["val_mae"].append(float(val_mae))
+            history["val_mdae"].append(float(val_mdae))
 
             scheduler.step(val_mae)
 
             if val_mae < best_val_mae - MIN_DELTA:
-
                 best_val_mae = val_mae
                 best_epoch = epoch
-
                 best_weights = {
-                    key: value.detach().cpu().clone()
-                    for key, value in model.state_dict().items()
+                    k: v.detach().cpu().clone()
+                    for k, v in model.state_dict().items()
                 }
-
                 epochs_without_improvement = 0
-
             else:
                 epochs_without_improvement += 1
 
             if epoch == 1 or epoch % 10 == 0:
-
                 print(
                     f"Epoch {epoch:03d}/{max_epochs} | "
                     f"Train Loss: {train_loss:.4f} | "
                     f"Val MAE: {val_mae:.4f} | "
+                    f"Val MdAE: {val_mdae:.4f} | "
                     f"LR: {current_lr:.6f}"
                 )
 
             if epochs_without_improvement >= patience:
-
                 print(
                     f"Early stopping at epoch {epoch}. "
                     f"Best epoch: {best_epoch} | "
                     f"Best validation MAE: {best_val_mae:.4f}"
                 )
-
                 break
 
         else:
 
             if epoch == 1 or epoch % 10 == 0:
-
                 print(
                     f"Epoch {epoch:03d}/{max_epochs} | "
                     f"Train Loss: {train_loss:.4f} | "
                     f"LR: {current_lr:.6f}"
                 )
 
-    # --------------------------------------------------------
-    # Restore best validation checkpoint
-    # --------------------------------------------------------
-
+    # Restore best validation checkpoint (CV only)
     if best_weights is not None:
-
         model.load_state_dict(best_weights)
 
-    if val_loader is not None:
-
+    if has_val:
         print(
-            f"Training finished | "
-            f"Best epoch: {best_epoch} | "
+            f"Training finished | Best epoch: {best_epoch} | "
             f"Best validation MAE: {best_val_mae:.4f}"
         )
-
     else:
         best_epoch = max_epochs
 
     model.training_history = history
     model.best_epoch = best_epoch
-    model.best_val_mae = (
-        best_val_mae if val_loader is not None else None
-    )
+    model.best_val_mae = best_val_mae if has_val else None
 
-    return model
-
+    return model, prep
 
 
 # ============================================================
@@ -364,11 +385,9 @@ for _, pair_row in pairs_df.iterrows():
 
     print(f"\nProcessing {pair_name}: {source_id} -> {target_id}")
 
-    embedding_dir = os.path.join(
-        SPLITS_DIR, pair_name, "embeddings"
-    )
+    embedding_dir = os.path.join(SPLITS_DIR, pair_name, "embeddings")
 
-    # Load development data
+    # Load development (source-project) data
     X_dev = np.load(
         os.path.join(embedding_dir, "development_embeddings.npy")
     )
@@ -395,17 +414,13 @@ for _, pair_row in pairs_df.iterrows():
         )
 
     # --------------------------------------------------------
-    # 5-Fold Cross-Validation
+    # 5-Fold Cross-Validation (source project only)
     # --------------------------------------------------------
 
-    kf = KFold(
-        n_splits=N_SPLITS,
-        shuffle=True,
-        random_state=SEED
-    )
-
+    kf = KFold(n_splits=N_SPLITS, shuffle=True, random_state=SEED)
 
     fold_mae = []
+    fold_mdae = []
     fold_best_epochs = []
     fold_prediction_stds = []
 
@@ -416,7 +431,7 @@ for _, pair_row in pairs_df.iterrows():
         X_train, X_val = X_dev[train_idx], X_dev[val_idx]
         y_train, y_val = y_dev[train_idx], y_dev[val_idx]
 
-        model = train_model(
+        model, prep = train_model(
             X_train,
             y_train,
             X_val,
@@ -426,22 +441,23 @@ for _, pair_row in pairs_df.iterrows():
         )
 
         # Best validation checkpoint is already restored.
-        val_loader = create_loader(X_val)
-
-        val_predictions = predict(model, val_loader)
+        val_predictions = predict_points(model, prep, X_val)
 
         mae = mean_absolute_error(y_val, val_predictions)
+        mdae = median_absolute_error(y_val, val_predictions)
 
         prediction_std = float(np.std(val_predictions))
         actual_std = float(np.std(y_val))
 
-        fold_mae.append(mae)
-        fold_best_epochs.append(model.best_epoch)
+        fold_mae.append(float(mae))
+        fold_mdae.append(float(mdae))
+        fold_best_epochs.append(int(model.best_epoch))
         fold_prediction_stds.append(prediction_std)
 
         print(
             f"Fold {fold}/{N_SPLITS} | "
             f"MAE: {mae:.4f} | "
+            f"MdAE: {mdae:.4f} | "
             f"Actual Std: {actual_std:.4f} | "
             f"Prediction Std: {prediction_std:.4f} | "
             f"Best Epoch: {model.best_epoch}"
@@ -451,21 +467,18 @@ for _, pair_row in pairs_df.iterrows():
 
     cv_mean_mae = float(np.mean(fold_mae))
     cv_std_mae = float(np.std(fold_mae))
+    cv_mean_mdae = float(np.mean(fold_mdae))
+    cv_std_mdae = float(np.std(fold_mdae))
 
-    # Median best epoch across all folds.
-    final_epochs = max(
-        1,
-        int(np.median(fold_best_epochs))
+    final_epochs = min(
+        EPOCHS,
+        max(MIN_FINAL_EPOCHS, int(np.median(fold_best_epochs)))
     )
 
-    print(f"\nCV Mean MAE: {cv_mean_mae:.4f}")
-    print(f"CV Std MAE: {cv_std_mae:.4f}")
+    print(f"\nCV Mean MAE:  {cv_mean_mae:.4f} (+/- {cv_std_mae:.4f})")
+    print(f"CV Mean MdAE: {cv_mean_mdae:.4f} (+/- {cv_std_mdae:.4f})")
     print(f"Best epochs per fold: {fold_best_epochs}")
     print(f"Final training epochs: {final_epochs}")
-
-
-    cv_mean_mae = float(np.mean(fold_mae))
-    cv_std_mae = float(np.std(fold_mae))
 
     # --------------------------------------------------------
     # Train Final Model on All Development Data
@@ -476,24 +489,29 @@ for _, pair_row in pairs_df.iterrows():
         f"on all development data."
     )
 
-    final_model = train_model(
+    final_model, final_prep = train_model(
         X_dev,
         y_dev,
         max_epochs=final_epochs
     )
+
     # --------------------------------------------------------
-    # Save Model and Configuration
+    # Save Model, Preprocessing, and Configuration
     # --------------------------------------------------------
 
     pair_model_dir = os.path.join(MODELS_DIR, pair_name)
     os.makedirs(pair_model_dir, exist_ok=True)
 
     model_filename = "story_point_cnn.pt"
+    preprocess_filename = "preprocess.json"
 
     torch.save(
         final_model.state_dict(),
         os.path.join(pair_model_dir, model_filename)
     )
+
+    with open(os.path.join(pair_model_dir, preprocess_filename), "w") as f:
+        json.dump(final_prep.to_dict(), f)
 
     config = {
         "project": "Project 7",
@@ -502,7 +520,7 @@ for _, pair_row in pairs_df.iterrows():
         "source_project_id": source_id,
         "target_project_id": target_id,
         "development_records": len(y_dev),
-        "model_architecture": "StoryPointCNN (3-Layer 1D CNN)",
+        "model_architecture": "StoryPointCNN (3-Layer 1D CNN, BatchNorm)",
         "input_dimension": INPUT_DIM,
         "max_epochs": EPOCHS,
         "final_training_epochs": final_epochs,
@@ -510,29 +528,37 @@ for _, pair_row in pairs_df.iterrows():
         "learning_rate": LEARNING_RATE,
         "weight_decay": WEIGHT_DECAY,
         "dropout": DROPOUT,
+        "loss": LOSS,
+        "log_target": LOG_TARGET,
+        "feature_standardization": "StandardScaler fit on training data",
         "early_stopping_patience": PATIENCE,
         "minimum_improvement": MIN_DELTA,
-        "learning_rate_scheduler": "ReduceLROnPlateau",
+        "min_final_epochs": MIN_FINAL_EPOCHS,
+        "learning_rate_scheduler": {
+            "name": "ReduceLROnPlateau",
+            "factor": 0.5,
+            "patience": 5,
+            "min_lr": 1e-6
+        },
         "gradient_clipping": 1.0,
-        "fold_best_epochs": fold_best_epochs,
         "random_seed": SEED,
-"cv_validation_results": {
-    "fold_mae": [round(float(x), 4) for x in fold_mae],
-    "mean_mae": round(cv_mean_mae, 4),
-    "std_mae": round(cv_std_mae, 4),
-    "fold_best_epochs": fold_best_epochs,
-    "fold_prediction_stds": [
-        round(float(x), 4)
-        for x in fold_prediction_stds
-    ],
-    "final_training_epochs": final_epochs
-},
-        "saved_model_file": model_filename
+        "cv_validation_results": {
+            "fold_mae": [round(x, 4) for x in fold_mae],
+            "mean_mae": round(cv_mean_mae, 4),
+            "std_mae": round(cv_std_mae, 4),
+            "fold_mdae": [round(x, 4) for x in fold_mdae],
+            "mean_mdae": round(cv_mean_mdae, 4),
+            "std_mdae": round(cv_std_mdae, 4),
+            "fold_best_epochs": fold_best_epochs,
+            "fold_prediction_stds": [round(x, 4) for x in fold_prediction_stds],
+            "mean_prediction_std": round(float(np.mean(fold_prediction_stds)), 4),
+            "final_training_epochs": final_epochs
+        },
+        "saved_model_file": model_filename,
+        "preprocess_file": preprocess_filename
     }
 
-    with open(
-        os.path.join(pair_model_dir, "model_config.json"), "w"
-    ) as f:
+    with open(os.path.join(pair_model_dir, "model_config.json"), "w") as f:
         json.dump(config, f, indent=4)
 
     cv_summary.append({
@@ -541,16 +567,20 @@ for _, pair_row in pairs_df.iterrows():
         "target_project_id": target_id,
         "development_records": len(y_dev),
         "cv_mean_mae": round(cv_mean_mae, 4),
-        "cv_std_mae": round(cv_std_mae, 4)
+        "cv_std_mae": round(cv_std_mae, 4),
+        "cv_mean_mdae": round(cv_mean_mdae, 4),
+        "cv_std_mdae": round(cv_std_mdae, 4),
+        "mean_prediction_std": round(float(np.mean(fold_prediction_stds)), 4)
     })
 
     print(
         f"{pair_name} completed - "
-        f"Mean CV MAE: {cv_mean_mae:.4f} "
-        f"(+/- {cv_std_mae:.4f})"
+        f"MAE: {cv_mean_mae:.4f} (+/- {cv_std_mae:.4f}) | "
+        f"MdAE: {cv_mean_mdae:.4f} (+/- {cv_std_mdae:.4f})"
     )
 
     del final_model
+
 
 # ============================================================
 # Save Cross-Validation Summary
@@ -564,8 +594,11 @@ summary_df.to_csv(
 )
 
 print("\nTraining completed for all 39 project pairs.")
-print(f"Overall CV MAE: {summary_df['cv_mean_mae'].mean():.4f}")
-print(f"Overall CV MAE Std: {summary_df['cv_mean_mae'].std():.4f}")
+print(f"Overall CV MAE:  {summary_df['cv_mean_mae'].mean():.4f} "
+      f"(std across pairs: {summary_df['cv_mean_mae'].std():.4f})")
+print(f"Overall CV MdAE: {summary_df['cv_mean_mdae'].mean():.4f} "
+      f"(std across pairs: {summary_df['cv_mean_mdae'].std():.4f})")
+print(f"Mean prediction std: {summary_df['mean_prediction_std'].mean():.4f}")
 
 
 # ============================================================
