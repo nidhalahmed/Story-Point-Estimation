@@ -1,0 +1,68 @@
+{
+    "project": "Project 7",
+    "setting": "SBERT + Cross-Project + Random Split",
+    "pair": "pair_33",
+    "source_project_id": "CXX",
+    "target_project_id": "JAVA",
+    "development_records": 212,
+    "model_architecture": "StoryPointCNN (3-Layer 1D CNN, BatchNorm)",
+    "input_dimension": 384,
+    "max_epochs": 100,
+    "final_training_epochs": 11,
+    "batch_size": 64,
+    "learning_rate": 0.001,
+    "weight_decay": 0.0001,
+    "dropout": 0.2,
+    "loss": "huber",
+    "log_target": true,
+    "feature_standardization": "StandardScaler fit on training data",
+    "early_stopping_patience": 15,
+    "minimum_improvement": 0.0001,
+    "min_final_epochs": 10,
+    "learning_rate_scheduler": {
+        "name": "ReduceLROnPlateau",
+        "factor": 0.5,
+        "patience": 5,
+        "min_lr": 1e-06
+    },
+    "gradient_clipping": 1.0,
+    "random_seed": 42,
+    "cv_validation_results": {
+        "fold_mae": [
+            0.6545,
+            0.5233,
+            0.4679,
+            0.5497,
+            0.3875
+        ],
+        "mean_mae": 0.5166,
+        "std_mae": 0.0885,
+        "fold_mdae": [
+            0.2952,
+            0.3385,
+            0.2294,
+            0.3439,
+            0.1851
+        ],
+        "mean_mdae": 0.2784,
+        "std_mdae": 0.0621,
+        "fold_best_epochs": [
+            9,
+            11,
+            11,
+            11,
+            9
+        ],
+        "fold_prediction_stds": [
+            0.1614,
+            0.24,
+            0.2115,
+            0.1843,
+            0.1432
+        ],
+        "mean_prediction_std": 0.1881,
+        "final_training_epochs": 11
+    },
+    "saved_model_file": "story_point_cnn.pt",
+    "preprocess_file": "preprocess.json"
+}

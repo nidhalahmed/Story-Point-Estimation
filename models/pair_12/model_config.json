@@ -1,0 +1,68 @@
+{
+    "project": "Project 7",
+    "setting": "SBERT + Cross-Project + Random Split",
+    "pair": "pair_12",
+    "source_project_id": "SERVER",
+    "target_project_id": "BAM",
+    "development_records": 743,
+    "model_architecture": "StoryPointCNN (3-Layer 1D CNN, BatchNorm)",
+    "input_dimension": 384,
+    "max_epochs": 100,
+    "final_training_epochs": 10,
+    "batch_size": 64,
+    "learning_rate": 0.001,
+    "weight_decay": 0.0001,
+    "dropout": 0.2,
+    "loss": "huber",
+    "log_target": true,
+    "feature_standardization": "StandardScaler fit on training data",
+    "early_stopping_patience": 15,
+    "minimum_improvement": 0.0001,
+    "min_final_epochs": 10,
+    "learning_rate_scheduler": {
+        "name": "ReduceLROnPlateau",
+        "factor": 0.5,
+        "patience": 5,
+        "min_lr": 1e-06
+    },
+    "gradient_clipping": 1.0,
+    "random_seed": 42,
+    "cv_validation_results": {
+        "fold_mae": [
+            1.2912,
+            1.3617,
+            1.3308,
+            1.3978,
+            1.1738
+        ],
+        "mean_mae": 1.3111,
+        "std_mae": 0.0771,
+        "fold_mdae": [
+            0.8732,
+            0.8301,
+            0.7391,
+            0.7406,
+            0.7071
+        ],
+        "mean_mdae": 0.778,
+        "std_mdae": 0.0628,
+        "fold_best_epochs": [
+            7,
+            8,
+            11,
+            6,
+            7
+        ],
+        "fold_prediction_stds": [
+            0.7892,
+            0.864,
+            0.9275,
+            0.7384,
+            0.7736
+        ],
+        "mean_prediction_std": 0.8185,
+        "final_training_epochs": 10
+    },
+    "saved_model_file": "story_point_cnn.pt",
+    "preprocess_file": "preprocess.json"
+}

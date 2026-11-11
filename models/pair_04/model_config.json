@@ -1,0 +1,68 @@
+{
+    "project": "Project 7",
+    "setting": "SBERT + Cross-Project + Random Split",
+    "pair": "pair_04",
+    "source_project_id": "TIMOB",
+    "target_project_id": "ALOY",
+    "development_records": 4409,
+    "model_architecture": "StoryPointCNN (3-Layer 1D CNN, BatchNorm)",
+    "input_dimension": 384,
+    "max_epochs": 100,
+    "final_training_epochs": 10,
+    "batch_size": 64,
+    "learning_rate": 0.001,
+    "weight_decay": 0.0001,
+    "dropout": 0.2,
+    "loss": "huber",
+    "log_target": true,
+    "feature_standardization": "StandardScaler fit on training data",
+    "early_stopping_patience": 15,
+    "minimum_improvement": 0.0001,
+    "min_final_epochs": 10,
+    "learning_rate_scheduler": {
+        "name": "ReduceLROnPlateau",
+        "factor": 0.5,
+        "patience": 5,
+        "min_lr": 1e-06
+    },
+    "gradient_clipping": 1.0,
+    "random_seed": 42,
+    "cv_validation_results": {
+        "fold_mae": [
+            2.9573,
+            2.6271,
+            2.8782,
+            2.9731,
+            3.0464
+        ],
+        "mean_mae": 2.8964,
+        "std_mae": 0.1449,
+        "fold_mdae": [
+            1.8349,
+            1.6741,
+            1.9836,
+            1.7467,
+            1.977
+        ],
+        "mean_mdae": 1.8433,
+        "std_mdae": 0.123,
+        "fold_best_epochs": [
+            7,
+            6,
+            6,
+            5,
+            5
+        ],
+        "fold_prediction_stds": [
+            2.0091,
+            1.4522,
+            2.1517,
+            1.7003,
+            2.1004
+        ],
+        "mean_prediction_std": 1.8827,
+        "final_training_epochs": 10
+    },
+    "saved_model_file": "story_point_cnn.pt",
+    "preprocess_file": "preprocess.json"
+}

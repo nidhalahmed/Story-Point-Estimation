@@ -1,0 +1,68 @@
+{
+    "project": "Project 7",
+    "setting": "SBERT + Cross-Project + Random Split",
+    "pair": "pair_37",
+    "source_project_id": "TISTUD",
+    "target_project_id": "NEXUS",
+    "development_records": 3293,
+    "model_architecture": "StoryPointCNN (3-Layer 1D CNN, BatchNorm)",
+    "input_dimension": 384,
+    "max_epochs": 100,
+    "final_training_epochs": 10,
+    "batch_size": 64,
+    "learning_rate": 0.001,
+    "weight_decay": 0.0001,
+    "dropout": 0.2,
+    "loss": "huber",
+    "log_target": true,
+    "feature_standardization": "StandardScaler fit on training data",
+    "early_stopping_patience": 15,
+    "minimum_improvement": 0.0001,
+    "min_final_epochs": 10,
+    "learning_rate_scheduler": {
+        "name": "ReduceLROnPlateau",
+        "factor": 0.5,
+        "patience": 5,
+        "min_lr": 1e-06
+    },
+    "gradient_clipping": 1.0,
+    "random_seed": 42,
+    "cv_validation_results": {
+        "fold_mae": [
+            2.0803,
+            2.1603,
+            2.0938,
+            2.1601,
+            2.0347
+        ],
+        "mean_mae": 2.1059,
+        "std_mae": 0.0485,
+        "fold_mdae": [
+            1.8993,
+            1.6539,
+            1.4949,
+            1.7198,
+            1.4734
+        ],
+        "mean_mdae": 1.6483,
+        "std_mdae": 0.1564,
+        "fold_best_epochs": [
+            1,
+            2,
+            4,
+            3,
+            4
+        ],
+        "fold_prediction_stds": [
+            0.4173,
+            0.6813,
+            0.9068,
+            0.9475,
+            1.0854
+        ],
+        "mean_prediction_std": 0.8077,
+        "final_training_epochs": 10
+    },
+    "saved_model_file": "story_point_cnn.pt",
+    "preprocess_file": "preprocess.json"
+}

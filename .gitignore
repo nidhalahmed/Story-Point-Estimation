@@ -10,20 +10,6 @@ __pycache__/
 data/raw/
 data/processed/
 
-# Model artifacts
-models/*
-!models/.gitkeep
-!models/*.json
-!models/**/*.json
-
-# Results (keep everything)
-!results/
-!results/**
-
-# Member-specific model archives
-models_for_member_5/
-models_for_member_5.zip
-
 # Large model checkpoints
 *.pt
 *.pth

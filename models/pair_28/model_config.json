@@ -1,0 +1,68 @@
+{
+    "project": "Project 7",
+    "setting": "SBERT + Cross-Project + Random Split",
+    "pair": "pair_28",
+    "source_project_id": "CONFCLOUD",
+    "target_project_id": "DURACLOUD",
+    "development_records": 340,
+    "model_architecture": "StoryPointCNN (3-Layer 1D CNN, BatchNorm)",
+    "input_dimension": 384,
+    "max_epochs": 100,
+    "final_training_epochs": 10,
+    "batch_size": 64,
+    "learning_rate": 0.001,
+    "weight_decay": 0.0001,
+    "dropout": 0.2,
+    "loss": "huber",
+    "log_target": true,
+    "feature_standardization": "StandardScaler fit on training data",
+    "early_stopping_patience": 15,
+    "minimum_improvement": 0.0001,
+    "min_final_epochs": 10,
+    "learning_rate_scheduler": {
+        "name": "ReduceLROnPlateau",
+        "factor": 0.5,
+        "patience": 5,
+        "min_lr": 1e-06
+    },
+    "gradient_clipping": 1.0,
+    "random_seed": 42,
+    "cv_validation_results": {
+        "fold_mae": [
+            1.0929,
+            1.4179,
+            1.4125,
+            1.0131,
+            1.1976
+        ],
+        "mean_mae": 1.2268,
+        "std_mae": 0.1646,
+        "fold_mdae": [
+            0.6378,
+            0.6732,
+            0.9435,
+            0.6563,
+            0.6691
+        ],
+        "mean_mdae": 0.716,
+        "std_mdae": 0.1144,
+        "fold_best_epochs": [
+            45,
+            8,
+            13,
+            4,
+            8
+        ],
+        "fold_prediction_stds": [
+            1.0613,
+            0.5162,
+            0.8791,
+            0.1857,
+            0.6352
+        ],
+        "mean_prediction_std": 0.6555,
+        "final_training_epochs": 10
+    },
+    "saved_model_file": "story_point_cnn.pt",
+    "preprocess_file": "preprocess.json"
+}

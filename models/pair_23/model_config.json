@@ -1,0 +1,68 @@
+{
+    "project": "Project 7",
+    "setting": "SBERT + Cross-Project + Random Split",
+    "pair": "pair_23",
+    "source_project_id": "EVG",
+    "target_project_id": "FAB",
+    "development_records": 5069,
+    "model_architecture": "StoryPointCNN (3-Layer 1D CNN, BatchNorm)",
+    "input_dimension": 384,
+    "max_epochs": 100,
+    "final_training_epochs": 10,
+    "batch_size": 64,
+    "learning_rate": 0.001,
+    "weight_decay": 0.0001,
+    "dropout": 0.2,
+    "loss": "huber",
+    "log_target": true,
+    "feature_standardization": "StandardScaler fit on training data",
+    "early_stopping_patience": 15,
+    "minimum_improvement": 0.0001,
+    "min_final_epochs": 10,
+    "learning_rate_scheduler": {
+        "name": "ReduceLROnPlateau",
+        "factor": 0.5,
+        "patience": 5,
+        "min_lr": 1e-06
+    },
+    "gradient_clipping": 1.0,
+    "random_seed": 42,
+    "cv_validation_results": {
+        "fold_mae": [
+            0.7626,
+            0.7574,
+            0.7623,
+            0.7549,
+            0.7365
+        ],
+        "mean_mae": 0.7547,
+        "std_mae": 0.0096,
+        "fold_mdae": [
+            0.519,
+            0.5071,
+            0.5108,
+            0.516,
+            0.5154
+        ],
+        "mean_mdae": 0.5137,
+        "std_mdae": 0.0042,
+        "fold_best_epochs": [
+            6,
+            9,
+            2,
+            5,
+            4
+        ],
+        "fold_prediction_stds": [
+            0.345,
+            0.3575,
+            0.2189,
+            0.304,
+            0.2593
+        ],
+        "mean_prediction_std": 0.2969,
+        "final_training_epochs": 10
+    },
+    "saved_model_file": "story_point_cnn.pt",
+    "preprocess_file": "preprocess.json"
+}
